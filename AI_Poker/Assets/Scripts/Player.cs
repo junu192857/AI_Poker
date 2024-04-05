@@ -76,6 +76,7 @@ public class Player : MonoBehaviour
                 straightFirst = temp[k].number;
             }
 
+            if (straightMarker == 4 && temp[k].number == 5 && temp.FindAll(c => c.number == 14).Count > 0) priority = temp[k].number;
             if (straightMarker >= 5) priority = temp[k].number;
 
         }
