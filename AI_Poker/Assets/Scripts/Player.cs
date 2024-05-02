@@ -4,7 +4,7 @@ using UnityEngine;
 using System;
 using System.Linq;
 
-enum PokerHands { 
+public enum PokerHands { 
     StraightFlush,
     FourCards,
     FullHouse,
@@ -15,19 +15,82 @@ enum PokerHands {
     OnePair,
     HighCard
 }
+
 public class Player : MonoBehaviour
 {
     //player's Hand-held cards
-    private Card firstCard;
-    private Card secondCard;
+    public Card firstCard;
+    public Card secondCard;
 
-    //true if the player is human.
-    public bool isHuman;
+    public Player nextPlayer;
 
+    public int money;
+    public int betMoney;
+
+    public bool isDead;
+    public bool isAllIn;
+
+    public bool betDone; // 베팅 완료 표시. betDone == true 이고 PokerManager.currentBetMoney == betMoney인 사람의 차례가 오면 한 번의 베팅이 끝나게 된다.
+
+
+    public Player() {
+        money = 100;
+        betMoney = 0;
+        firstCard = null;
+        secondCard = null;
+        isDead = false;
+        isAllIn = false;
+        betDone = false;
+    }
+
+    public void Check() {
+        if (betMoney != PokerManager.currentBetMoney)
+        {
+            Debug.Log("Cannot Check. Please Call, Raise or Fold");
+        }
+        else betDone = true;
+    }
+    public void Call() {
+        int added = PokerManager.currentBetMoney - betMoney;
+        Pay(added);
+    }
+    public void Raise(int extraMoney) {
+        Call();
+        Pay(extraMoney);
+    }
+    public void Fold() {
+        isDead = true;
+    }
+
+    public void Pay(int money) {
+        if (this.money >= money)
+        {
+            this.money -= money;
+            betMoney += money;
+        }
+        else { //All-in
+            betMoney += this.money;
+            this.money = 0;
+            isAllIn = true;
+        }
+        PokerManager.currentBetMoney = betMoney;
+    }
+
+    public virtual void Bet(int blind) {
+        if (isDead || isAllIn)
+        {
+            nextPlayer.Bet(blind + 1);
+            betDone = false;
+            return;
+        }
+        if (betDone && PokerManager.currentBetMoney == betMoney) {
+            betDone = false;
+            return;
+        }
+    }
     // 족보 -> 같은 족보 시 더 상위 숫자(priority) -> 키커 카드로 순위 결정.
-    private (PokerHands, int, int) CalculatePriority(List<Card> boardCards) {
-        int priority;
-        int kicker;
+    protected (PokerHands, int, int) CalculatePriority(List<Card> boardCards) {
+        int priority, kicker;
 
         List<Card> allCards = boardCards;
         
@@ -36,11 +99,32 @@ public class Player : MonoBehaviour
 
         if (CheckStraightFlush(allCards, out priority, out kicker)) return (PokerHands.StraightFlush, priority, kicker);
         else if (CheckFourCard(allCards, out priority, out kicker)) return (PokerHands.FourCards, priority, kicker);
-        throw new NotImplementedException();
+        else if (CheckFullHouse(allCards, out priority, out kicker)) return (PokerHands.FullHouse, priority, kicker);
+        else if (CheckFlush(allCards, out priority, out kicker)) return (PokerHands.Flush, priority, kicker);
+        else if (CheckStraight(allCards, out priority, out kicker)) return (PokerHands.Straight, priority, kicker);
+        else if (CheckTriple(allCards, out priority, out kicker)) return (PokerHands.Triple, priority, kicker);
+        else if (CheckTwoPair(allCards, out priority, out kicker)) return (PokerHands.TwoPair, priority, kicker);
+        else if (CheckOnePair(allCards, out priority, out kicker)) return (PokerHands.OnePair, priority, kicker);
+        else return CalculateHighCard(allCards);
+    }
+
+    public static PokerHands CalculatePriorityForTest(List<Card> allCards) {
+        int priority;
+        int kicker;
+
+        if (CheckStraightFlush(allCards, out priority, out kicker)) return PokerHands.StraightFlush;
+        else if (CheckFourCard(allCards, out priority, out kicker)) return PokerHands.FourCards;
+        else if (CheckFullHouse(allCards, out priority, out kicker)) return PokerHands.FullHouse;
+        else if (CheckFlush(allCards, out priority, out kicker)) return PokerHands.Flush;
+        else if (CheckStraight(allCards, out priority, out kicker)) return PokerHands.Straight;
+        else if (CheckTriple(allCards, out priority, out kicker)) return PokerHands.Triple;
+        else if (CheckTwoPair(allCards, out priority, out kicker)) return PokerHands.TwoPair;
+        else if (CheckOnePair(allCards, out priority, out kicker)) return PokerHands.OnePair;
+        else return PokerHands.HighCard;
     }
 
     //스트레이트 플러시의 가장 높은 숫자를 반환. 키커는 0
-    private static bool CheckStraightFlush(List<Card> allCards, out int priority, out int kicker) {
+    protected static bool CheckStraightFlush(List<Card> allCards, out int priority, out int kicker) {
         List<Card> temp = allCards.OrderBy(c => c.number).ToList();
 
         int sfMarker = 1;
@@ -67,7 +151,7 @@ public class Player : MonoBehaviour
     }
 
     //포카드에 해당하는 숫자 및 키커 1개의 숫자를 반환
-    private static bool CheckFourCard(List<Card> allCards, out int priority, out int kicker) {
+    protected static bool CheckFourCard(List<Card> allCards, out int priority, out int kicker) {
         int[] count = new int[15];
 
         priority = 0;
@@ -87,7 +171,7 @@ public class Player : MonoBehaviour
         return priority > 0;
     }
 
-    private static bool CheckFullHouse(List<Card> allCards, out int priority, out int kicker) {
+    protected static bool CheckFullHouse(List<Card> allCards, out int priority, out int kicker) {
         kicker = 0;
 
         if (CheckTriple(allCards, out int triple, out int dummy)) {
@@ -101,8 +185,27 @@ public class Player : MonoBehaviour
         throw new NotImplementedException();
     }
 
+    protected static bool CheckFlush(List<Card> allCards, out int priority, out int kicker) {
+        List<Card> temp = allCards.OrderBy(c => c.number).ToList();
+        int[] shapeCount = new int[4];
+        priority = 0;
+        kicker = 0;
+
+        foreach (Card card in allCards) {
+            shapeCount[(int)card.shape]++;
+        }
+
+        for (int i = 0; i < shapeCount.Length; i++) {
+            if (shapeCount[i] >= 5) {
+                priority = temp.FindLast(card => (int)card.shape == i).number;
+                break;
+            }
+        }
+        return priority > 0;
+    }
+
     //트리플의 가장 높은 숫자와 함께 키커 2개의 숫자를 (가장 높은 키커 * 100 + 두 번째 키커)의 식으로 반환.
-    private static bool CheckTriple(List<Card> allCards, out int priority, out int kicker) {
+    protected static bool CheckTriple(List<Card> allCards, out int priority, out int kicker) {
         int[] count = new int[15];
         int kicker1 = 0;
         int kicker2 = 0;
@@ -117,22 +220,20 @@ public class Player : MonoBehaviour
 
         for (int k = 14; k >= 2; k--)
         {
-            if (count[k] > 3) {
-                Debug.LogError("There should be four card.");
-                return false;
-            }
-            else if (count[k] == 3 && priority == 0)
+            if (count[k] >= 3 && priority == 0)
             {
                 priority = k;
+                count[k] -= 3;
             }
-            else if (count[k] > 0)
+        }
+        for (int k = 14; k >= 2; k--)
+        {
+            while (count[k] > 0)
             {
-                while (count[k] > 0)
-                {
-                    count[k]--;
-                    if (kicker1 == 0) kicker1 = k;
-                    else if (kicker2 == 0) kicker2 = k;
-                }
+                count[k]--;
+                if (kicker1 == 0) kicker1 = k;
+                else if (kicker2 == 0) kicker2 = k;
+                else break;
             }
         }
         kicker = 100 * kicker1 + kicker2;
@@ -141,7 +242,7 @@ public class Player : MonoBehaviour
     }
 
     //두 개의 페어를 priority로 반환, 하나의 키커를 kicker로 반환
-    private static bool CheckTwoPair(List<Card> allCards, out int priority, out int kicker) {
+    protected static bool CheckTwoPair(List<Card> allCards, out int priority, out int kicker) {
         int[] count = new int[15];
 
         int pair1 = 0;
@@ -157,16 +258,25 @@ public class Player : MonoBehaviour
 
         for (int k = 14; k >= 2; k--)
         {
-            if (count[k] > 2) {
-                Debug.LogError("There should be Four card / Triple.");
-                return false;
-            }
-            else if (count[k] == 2)
+            if (count[k] >= 2)
             {
-                if (pair1 == 0) pair1 = k;
-                else if (pair2 == 0) pair2 = k;
+                if (pair1 == 0) {
+                    pair1 = k;
+                    count[k] -= 2;
+                }
+                else if (pair2 == 0)
+                {
+                    pair2 = k;
+                    count[k] -= 2;
+                    break;
+                }
             }
-            else if (count[k] > 0 && kicker == 0) kicker = k;
+        }
+        for (int k = 14; k >= 2; k--) {
+            if (count[k] > 0 && kicker == 0) {
+                kicker = k;
+                break;
+            }
         }
 
         priority = 100 * pair1 + pair2;
@@ -175,7 +285,7 @@ public class Player : MonoBehaviour
     }
 
     //하나의 페어와 3개의 키커를 반환.
-    private static bool CheckOnePair(List<Card> allCards, out int priority, out int kicker) {
+    protected static bool CheckOnePair(List<Card> allCards, out int priority, out int kicker) {
         int[] count = new int[15];
 
         priority = 0;
@@ -187,20 +297,25 @@ public class Player : MonoBehaviour
         }
 
         for (int k = 14; k >= 2; k--) {
-            if (count[k] > 2)
+            if (count[k] >= 2)
             {
-                Debug.LogError("There should be four card, or triple.");
-                return false;
+                if (priority == 0) { 
+                    priority = k;
+                    count[k] -= 2;
+                    break;
+                }
             }
-            else if (count[k] == 2)
+        }
+
+        for (int k = 14; k >= 2; k--)
+        {
+            while (count[k] > 0)
             {
-                if (priority > 0) Debug.Log("This should be two pair. but in case of searching full house, you can ignore this.");
-                else priority = k;
-            }
-            else if (count[k] > 0) {
-                if (kickers[0] == 0) kickers[0] =k;
+                count[k]--;
+                if (kickers[0] == 0) kickers[0] = k;
                 else if (kickers[1] == 0) kickers[1] = k;
                 else if (kickers[2] == 0) kickers[2] = k;
+                else break;
             }
         }
 
@@ -209,7 +324,7 @@ public class Player : MonoBehaviour
     }
 
     //스트레이트의 가장 높은 숫자를 반환. 키커는 0
-    private static bool CheckStraight(List<Card> allCards, out int priority, out int kicker) {
+    protected static bool CheckStraight(List<Card> allCards, out int priority, out int kicker) {
         List<Card> temp = allCards.OrderBy(c => c.number).ToList();
 
         int straightMarker = 1;
@@ -230,5 +345,15 @@ public class Player : MonoBehaviour
 
         }
         return priority > 0;
+    }
+
+    protected static (PokerHands, int, int) CalculateHighCard(List<Card> allCards) {
+        List<Card> temp = allCards.OrderBy(c => c.number).ToList();
+
+        int priority = 0;
+        for (int i = 3; i <= 7; i++) {
+            priority += (int)Mathf.Pow(15, i - 3) * temp[i].number;
+        }
+        return (PokerHands.HighCard, priority, 0);
     }
 }
